@@ -10,9 +10,11 @@
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 
+#define MAX_ALLOWED_REQUESTS_PER_MINUTE 10
+
 struct element {
-     int val;
-     int ts;
+    int val;
+    int ts;
 };
 
 struct {
@@ -29,7 +31,7 @@ struct packet {
     struct udphdr* udp;
 };
 
-int process_dns(struct packet* pkt) {
+int process_udp53(struct packet* pkt) {
     struct element* elem = bpf_map_lookup_elem(&map, &pkt->ip->daddr);
 
     int ts = ((bpf_ktime_get_ns() / 1000000000) / 60);
@@ -42,9 +44,7 @@ int process_dns(struct packet* pkt) {
             elem->val++;
         }
 
-        bpf_printk("ip: %pI4, val: %d\n", &pkt->ip->saddr, elem->val);
-
-        if (elem->val > 10) return XDP_DROP;
+        if (elem->val > MAX_ALLOWED_REQUESTS_PER_MINUTE) return XDP_DROP;
     } else {
         struct element new_element;
 
@@ -58,9 +58,9 @@ int process_dns(struct packet* pkt) {
 }
 
 int process_udp(struct packet* pkt) {
-    if (bpf_ntohs(pkt->udp->dest) != 53 && bpf_ntohs(pkt->udp->source) != 53) return XDP_PASS;
+    if (bpf_ntohs(pkt->udp->dest) != 53) return XDP_PASS;
 
-    return process_dns(pkt);
+    return process_udp53(pkt);
 }
 
 int process_ip(struct packet* pkt) {
