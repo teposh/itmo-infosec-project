@@ -26,6 +26,10 @@ case "$1" in
   nft add rule xdp-test postrouting iif veth0 counter masquerade
   echo 1 > /proc/sys/net/ipv4/ip_forward
   ;;
+  l*)
+  echo 1 > /sys/kernel/debug/tracing/options/trace_printk
+  cat /sys/kernel/debug/tracing/trace_pipe
+  ;;
   off)
   ip link set veth0 xdp off
   ;;

@@ -38,13 +38,21 @@ int process_udp53(struct packet* pkt) {
 
     if (elem) {
         if (elem->ts < ts) {
-            elem->ts = ts;
+            if (elem->val > 0) {
+                bpf_printk("clear counter for %pI4\n", &pkt->ip->saddr);
+            }
+
             elem->val = 1;
+            elem->ts  = ts;
         } else {
             elem->val++;
         }
 
-        if (elem->val > MAX_ALLOWED_REQUESTS_PER_MINUTE) return XDP_DROP;
+        if (elem->val > MAX_ALLOWED_REQUESTS_PER_MINUTE) {
+            bpf_printk("drop packet from %pI4\n", &pkt->ip->saddr);
+
+            return XDP_DROP;
+        }
     } else {
         struct element new_element;
 
