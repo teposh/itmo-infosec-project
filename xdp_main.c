@@ -10,7 +10,13 @@
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 
-#define MAX_ALLOWED_REQUESTS_PER_MINUTE 10
+#ifdef DEBUG
+#define LOG(fmt, ...) bpf_printk(fmt "\n", ##__VA_ARGS__)
+#else
+#define LOG(fmt, ...)
+#endif
+
+#define MAX_ALLOWED_PACKETS_PER_MINUTE 10
 
 struct element {
     int val;
@@ -39,7 +45,7 @@ int process_udp53(struct packet* pkt) {
     if (elem) {
         if (elem->ts < ts) {
             if (elem->val > 0) {
-                bpf_printk("clear counter for %pI4\n", &pkt->ip->saddr);
+                LOG("clear counter for %pI4", &pkt->ip->saddr);
             }
 
             elem->val = 1;
@@ -48,8 +54,8 @@ int process_udp53(struct packet* pkt) {
             elem->val++;
         }
 
-        if (elem->val > MAX_ALLOWED_REQUESTS_PER_MINUTE) {
-            bpf_printk("drop packet from %pI4\n", &pkt->ip->saddr);
+        if (elem->val > MAX_ALLOWED_PACKETS_PER_MINUTE) {
+            LOG("drop packet from %pI4", &pkt->ip->saddr);
 
             return XDP_DROP;
         }
@@ -66,27 +72,41 @@ int process_udp53(struct packet* pkt) {
 }
 
 int process_udp(struct packet* pkt) {
-    if (bpf_ntohs(pkt->udp->dest) != 53) return XDP_PASS;
+    if (bpf_ntohs(pkt->udp->dest) != 53) {
+        return XDP_PASS;
+    }
 
     return process_udp53(pkt);
 }
 
 int process_ip(struct packet* pkt) {
-    if (pkt->ip->protocol != IPPROTO_UDP) return XDP_PASS;
+    if (pkt->ip->protocol != IPPROTO_UDP) {
+        return XDP_PASS;
+    }
 
     pkt->udp = (struct udphdr*)(pkt->ip + 1);
 
-    if ((size_t)(pkt->udp + 1) > (size_t)pkt->ctx->data_end) return XDP_DROP;
+    if ((size_t)(pkt->udp + 1) > (size_t)pkt->ctx->data_end) {
+        LOG("drop malformed udp packet");
+
+        return XDP_DROP;
+    }
 
     return process_udp(pkt);
 }
 
 int process_ether(struct packet* pkt) {
-    if (pkt->ether->h_proto != bpf_ntohs(ETH_P_IP)) return XDP_PASS;
+    if (pkt->ether->h_proto != bpf_ntohs(ETH_P_IP)) {
+        return XDP_PASS;
+    }
 
     pkt->ip = (struct iphdr*)(pkt->ether + 1);
 
-    if ((size_t)(pkt->ip + 1) > (size_t)pkt->ctx->data_end) return XDP_DROP;
+    if ((size_t)(pkt->ip + 1) > (size_t)pkt->ctx->data_end) {
+        LOG("drop malformed ip packet");
+
+        return XDP_DROP;
+    }
 
     return process_ip(pkt);
 }
@@ -94,7 +114,9 @@ int process_ether(struct packet* pkt) {
 int process_packet(struct packet* pkt) {
     pkt->ether = (struct ethhdr*)(size_t)pkt->ctx->data;
 
-    if ((size_t)(pkt->ether + 1) > (size_t)pkt->ctx->data_end) return XDP_PASS;
+    if ((size_t)(pkt->ether + 1) > (size_t)pkt->ctx->data_end) {
+        return XDP_PASS; // not ethernet packets
+    }
 
     return process_ether(pkt);
 }
